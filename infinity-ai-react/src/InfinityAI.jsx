@@ -1,0 +1,799 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+// ── CONSTANTS ──
+const HARDCODED_KEY = "PASTE_YOUR_NEW_API_KEY_HERE";
+
+const SYSTEM_PROMPT = `You are Infinity AI — a smart, creative AI assistant built for developers and creators.
+Help with anything: coding, writing, brainstorming, planning.
+When generating HTML/CSS/JS that should be rendered, put ALL of it in ONE \`\`\`html code block so users can preview it.
+For JS-only answers, use \`\`\`javascript. For CSS-only, use \`\`\`css.
+Always use fenced code blocks with language tags.`;
+
+const MODELS = {
+  claude: [
+    { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", shortName: "Sonnet 4", desc: "Smart & fast · Recommended" },
+    { id: "claude-opus-4-5", name: "Claude Opus 4.5", shortName: "Opus 4.5", desc: "Most powerful · Complex tasks" },
+    { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", shortName: "Haiku 4.5", desc: "Fastest · Lightweight" },
+  ],
+  gemini: [
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", shortName: "Flash 2.0", desc: "Fast multimodal · Google" },
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", shortName: "Pro 2.5", desc: "Most capable Gemini" },
+  ],
+};
+
+// ── SVG ICONS ──
+const ClaudeIcon = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 3c1.5 0 2.9.45 4.07 1.22L5.22 16.07A7 7 0 0 1 12 5zm0 14a7 7 0 0 1-4.07-1.22L18.78 7.93A7 7 0 0 1 12 19z" />
+  </svg>
+);
+
+const GeminiIcon = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z" />
+    <circle cx="12" cy="12" r="2.5" />
+  </svg>
+);
+
+const InfinityLogo = () => (
+  <svg width="36" height="22" viewBox="0 0 36 22" fill="none">
+    <path d="M18 11C18 11 14 4 9 4C5.13 4 2 7.13 2 11C2 14.87 5.13 18 9 18C14 18 18 11 18 11Z" stroke="url(#lg1)" strokeWidth="2.2" strokeLinecap="round" />
+    <path d="M18 11C18 11 22 4 27 4C30.87 4 34 7.13 34 11C34 14.87 30.87 18 27 18C22 18 18 11 18 11Z" stroke="url(#lg2)" strokeWidth="2.2" strokeLinecap="round" />
+    <defs>
+      <linearGradient id="lg1" x1="2" y1="11" x2="18" y2="11" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#a78bfa" /><stop offset="1" stopColor="#60a5fa" />
+      </linearGradient>
+      <linearGradient id="lg2" x1="18" y1="11" x2="34" y2="11" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#60a5fa" /><stop offset="1" stopColor="#a78bfa" />
+      </linearGradient>
+    </defs>
+  </svg>
+);
+
+// ── HELPERS ──
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function canPreview(lang) {
+  return ["html", "css", "javascript", "js", "jsx", "tsx", "svg"].includes((lang || "").toLowerCase());
+}
+
+function getFileType(file) {
+  if (file.type.startsWith("image/")) return "img";
+  if (file.type === "application/pdf") return "pdf";
+  if (file.type.startsWith("video/")) return "vid";
+  if (file.name.match(/\.(doc|docx)$/i)) return "doc";
+  if (file.name.match(/\.(txt|md|csv|json|xml|html|css|js)$/i)) return "txt";
+  return "file";
+}
+
+function fileIcon(type) {
+  return { pdf: "📄", doc: "📝", vid: "🎬", txt: "📃", file: "📎" }[type] || "📎";
+}
+
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// ── MARKDOWN RENDERER ──
+let _storeId = 0;
+function renderMD(raw, codeStore) {
+  const codeBlocks = [];
+  const placeholder = "\x00CODEBLOCK_";
+  let processed = raw.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push({ lang: (lang || "code").toLowerCase(), code: code.trim() });
+    return placeholder + idx + "\x00";
+  });
+  processed = esc(processed);
+  processed = processed.replace(
+    new RegExp(esc(placeholder) + "(\\d+)" + esc("\x00"), "g"),
+    (_, idx) => {
+      const { lang, code } = codeBlocks[parseInt(idx)];
+      const cbId = "cb_" + Math.random().toString(36).slice(2, 8);
+      const sid = "cs_" + ++_storeId;
+      codeStore[sid] = { code, lang };
+      const previewable = canPreview(lang);
+      const pvBtn = previewable
+        ? `<button class="cb-preview-btn" data-sid="${sid}">▶ Preview</button>`
+        : "";
+      return `<div class="code-wrap">
+        <div class="code-head">
+          <div class="code-head-left"><span class="lang-badge">${lang}</span></div>
+          <div class="code-head-btns">${pvBtn}<button class="copy-btn" data-cbid="${cbId}">Copy</button></div>
+        </div>
+        <pre><code id="${cbId}">${esc(code)}</code></pre>
+      </div>`;
+    }
+  );
+  processed = processed.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  processed = processed.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  processed = processed.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  processed = processed.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+  processed = processed.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+  processed = processed.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+  processed = processed.replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>");
+  processed = processed.replace(/^---$/gm, "<hr>");
+  processed = processed.replace(/^[\*\-] (.+)$/gm, "<li>$1</li>");
+  processed = processed.replace(/(<li>[\s\S]+?<\/li>)/g, (m) => "<ul>" + m + "</ul>");
+  processed = processed.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+  const parts = processed.split(/\n\n+/);
+  processed = parts.map((p) => {
+    p = p.trim();
+    if (!p) return "";
+    if (/^<(h[1-3]|ul|ol|div|blockquote|hr)/.test(p)) return p;
+    return "<p>" + p.replace(/\n/g, "<br>") + "</p>";
+  }).join("");
+  return processed;
+}
+
+// ── INFINITY CANVAS ANIMATION ──
+function InfinityCanvas() {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    cv.width = 520; cv.height = 320;
+    const ctx = cv.getContext("2d");
+    const W = 520, H = 320, CX = 260, CY = 160, A = 115;
+    let T = 0, raf;
+    function infinityPoint(t) {
+      const s = Math.sin(t), c2 = Math.cos(t), denom = 1 + s * s;
+      return { x: CX + A * c2 / denom, y: CY + A * s * c2 / denom };
+    }
+    const N = 600, pts = [];
+    for (let i = 0; i <= N; i++) pts.push(infinityPoint((i / N) * Math.PI * 2));
+    const arcLen = [0];
+    for (let i = 1; i <= N; i++) {
+      const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+      arcLen.push(arcLen[i-1] + Math.sqrt(dx*dx + dy*dy));
+    }
+    const totalLen = arcLen[N];
+    function ptAtFrac(f) {
+      const target = ((f % 1) + 1) % 1 * totalLen;
+      let lo = 0, hi = N;
+      while (lo < hi - 1) { const mid = (lo + hi) >> 1; arcLen[mid] < target ? lo = mid : hi = mid; }
+      const seg = arcLen[hi] - arcLen[lo], t2 = seg === 0 ? 0 : (target - arcLen[lo]) / seg;
+      return { x: pts[lo].x + (pts[hi].x - pts[lo].x) * t2, y: pts[lo].y + (pts[hi].y - pts[lo].y) * t2 };
+    }
+    function frame() {
+      ctx.clearRect(0, 0, W, H);
+      const pulse = 0.5 + 0.5 * Math.sin(T * 0.03);
+      const g1 = ctx.createRadialGradient(CX, CY, 10, CX, CY, 160);
+      g1.addColorStop(0, `rgba(80,40,180,${0.18 + pulse * 0.08})`);
+      g1.addColorStop(0.5, "rgba(50,20,120,0.09)"); g1.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g1; ctx.fillRect(0, 0, W, H);
+      ctx.save(); ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i <= N; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath(); ctx.strokeStyle = "rgba(160,160,200,0.13)"; ctx.lineWidth = 6;
+      ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.shadowBlur = 0; ctx.stroke(); ctx.restore();
+      const headFrac = ((T * 0.0018) % 1 + 1) % 1;
+      ctx.save();
+      for (let s = 0; s < 120; s++) {
+        const f0 = headFrac - (s / 120) * 0.32, f1 = headFrac - ((s + 1) / 120) * 0.32;
+        const p0 = ptAtFrac(f0), p1 = ptAtFrac(f1), fade = 1 - s / 120, alpha = fade * fade;
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+        ctx.lineCap = "round"; ctx.lineWidth = 1 + fade * 10;
+        if (fade > 0.7) {
+          const t2 = (fade - 0.7) / 0.3, r = Math.round(180 + t2 * 75), g = Math.round(180 + t2 * 75);
+          ctx.strokeStyle = `rgba(${r},${g},255,${alpha})`; ctx.shadowBlur = 28 * fade; ctx.shadowColor = "rgba(140,160,255,0.9)";
+        } else {
+          ctx.strokeStyle = `rgba(140,80,255,${alpha * 0.8})`; ctx.shadowBlur = 16 * fade; ctx.shadowColor = "rgba(120,60,240,0.6)";
+        }
+        ctx.stroke();
+      }
+      const head = ptAtFrac(headFrac);
+      const grd = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 22);
+      grd.addColorStop(0, "rgba(220,230,255,0.95)"); grd.addColorStop(0.25, "rgba(160,180,255,0.7)");
+      grd.addColorStop(0.6, "rgba(100,80,255,0.3)"); grd.addColorStop(1, "rgba(80,40,220,0)");
+      ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(head.x, head.y, 22, 0, Math.PI * 2); ctx.fill();
+      const grd2 = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 6);
+      grd2.addColorStop(0, "rgba(255,255,255,1)"); grd2.addColorStop(0.5, "rgba(200,220,255,0.8)"); grd2.addColorStop(1, "rgba(150,160,255,0)");
+      ctx.fillStyle = grd2; ctx.beginPath(); ctx.arc(head.x, head.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      T++; raf = requestAnimationFrame(frame);
+    }
+    frame();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return <canvas ref={canvasRef} style={{ width: 260, height: 160, display: "block" }} />;
+}
+
+// ── PREVIEW PANEL ──
+function PreviewPanel({ open, pvTab, setPvTab, pvCode, pvLang, onClose, onRefresh, onFullscreen, fsOn }) {
+  const iframeRef = useRef(null);
+  useEffect(() => {
+    if (!iframeRef.current || !pvCode) return;
+    let html = pvCode;
+    const l = (pvLang || "").toLowerCase();
+    if (l === "javascript" || l === "js") {
+      html = `<!DOCTYPE html><html><head><style>body{font-family:system-ui,sans-serif;padding:24px;background:#fff;color:#111;line-height:1.6;}</style></head><body><div id="output"></div><script>try{${pvCode}}catch(e){document.body.innerHTML='<pre style=color:red>'+e+'</pre>';}<\/script></body></html>`;
+    } else if (l === "css") {
+      html = `<!DOCTYPE html><html><head><style>${pvCode}</style></head><body style="font-family:system-ui;padding:24px;"><h2>CSS Preview</h2><p class="sample">Sample paragraph.</p><button class="sample-btn">Sample Button</button><div class="box">Sample Box</div></body></html>`;
+    } else if (!pvCode.trim().toLowerCase().startsWith("<!") && !pvCode.trim().startsWith("<html")) {
+      html = `<!DOCTYPE html><html><head><style>body{font-family:system-ui;padding:20px;margin:0;background:#fff;}</style></head><body>${pvCode}</body></html>`;
+    }
+    if (pvTab === "preview") iframeRef.current.srcdoc = html;
+  }, [pvCode, pvLang, pvTab]);
+
+  const panelStyle = {
+    width: open ? 500 : 0,
+    background: "#0b0917",
+    borderLeft: open ? "1px solid #2d2a40" : "1px solid transparent",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    transition: "width 0.32s cubic-bezier(0.4,0,0.2,1)",
+    flexShrink: 0,
+    ...(fsOn ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", zIndex: 9999 } : {}),
+  };
+
+  return (
+    <div style={panelStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid #2d2a40", background: "#1a1726", flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 4, background: "#131118", borderRadius: 8, padding: 3 }}>
+          {["preview", "code"].map(tab => (
+            <button key={tab} onClick={() => setPvTab(tab)} style={{ padding: "4px 12px", borderRadius: 6, border: "none", fontSize: 12, fontFamily: "Outfit,sans-serif", fontWeight: 500, cursor: "pointer", background: pvTab === tab ? "#2a2640" : "none", color: pvTab === tab ? "#e2dff0" : "#8b88a8", transition: "all 0.15s" }}>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        {[{ title: "Refresh", onClick: onRefresh, path: "M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15" },
+          { title: "Fullscreen", onClick: onFullscreen, path: fsOn ? "M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" : "M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" },
+          { title: "Close", onClick: onClose, path: "M18 6 6 18M6 6l12 12" }
+        ].map(({ title, onClick, path }) => (
+          <button key={title} onClick={onClick} title={title} style={{ width: 28, height: 28, background: "none", border: "none", borderRadius: 6, color: "#8b88a8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#272438"; e.currentTarget.style.color = "#e2dff0"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#8b88a8"; }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={path} /></svg>
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+        <iframe ref={iframeRef} style={{ width: "100%", height: "100%", border: "none", display: pvTab === "preview" ? "block" : "none", background: "#fff" }} title="preview" sandbox="allow-scripts allow-same-origin" />
+        {pvTab === "code" && pvCode && (
+          <pre style={{ margin: 0, padding: 16, background: "#0a0816", color: "#c9d1d9", fontFamily: "JetBrains Mono,monospace", fontSize: 13, lineHeight: 1.65, overflow: "auto", height: "100%" }}>{pvCode}</pre>
+        )}
+        {!pvCode && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "#4f4d6a", gap: 12 }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+            <p style={{ fontSize: 13, margin: 0 }}>No preview loaded yet</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── MODEL DROPDOWN ──
+function ModelDropdown({ open, currentModel, currentProvider, onSelect, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div ref={ref} style={{ position: "absolute", bottom: 52, left: 0, width: 270, background: "#1a1726", border: "1px solid #3a3654", borderRadius: 14, boxShadow: "0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(139,92,246,0.1)", zIndex: 999, paddingBottom: 6, animation: "dropUp 0.18s ease-out" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#4f4d6a", textTransform: "uppercase", letterSpacing: "1.2px", padding: "12px 14px 8px" }}>Choose Model</div>
+      {Object.entries(MODELS).map(([provider, models]) => (
+        <div key={provider}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px 5px", fontSize: 11.5, fontWeight: 600, color: "#8b88a8", borderTop: "1px solid #2d2a40", marginTop: 4 }}>
+            <div style={{ width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", background: provider === "claude" ? "rgba(167,139,250,0.15)" : "rgba(74,222,128,0.12)", color: provider === "claude" ? "#a78bfa" : "#4ade80" }}>
+              {provider === "claude" ? <ClaudeIcon size={12} /> : <GeminiIcon size={12} />}
+            </div>
+            {provider === "claude" ? "Claude" : "Google Gemini"}
+          </div>
+          {models.map(m => (
+            <div key={m.id} onClick={() => onSelect(m.id, m.shortName, provider)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", cursor: "pointer", gap: 10, margin: "0 6px", borderRadius: 8, background: currentModel === m.id ? "rgba(139,92,246,0.1)" : "none", transition: "background 0.15s" }}
+              onMouseEnter={e => { if (currentModel !== m.id) e.currentTarget.style.background = "#211e30"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = currentModel === m.id ? "rgba(139,92,246,0.1)" : "none"; }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: provider === "claude" ? "#a78bfa" : "#4ade80", boxShadow: provider === "claude" ? "0 0 5px rgba(167,139,250,0.7)" : "0 0 5px rgba(74,222,128,0.7)" }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#e2dff0" }}>{m.name}</div>
+                  <div style={{ fontSize: 11, color: "#8b88a8", marginTop: 1 }}>{m.desc}</div>
+                </div>
+              </div>
+              {currentModel === m.id && <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700 }}>✓</div>}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── API KEY MODAL ──
+function ApiModal({ open, onClose, onSave }) {
+  const [claudeKey, setClaudeKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [showClaude, setShowClaude] = useState(false);
+  const [showGemini, setShowGemini] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    onSave(claudeKey.trim(), geminiKey.trim());
+    setSaved(true);
+    setTimeout(() => { setSaved(false); onClose(); }, 1200);
+  };
+
+  if (!open) return null;
+  return (
+    <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#1a1726", border: "1px solid #3a3654", borderRadius: 16, width: 420, maxWidth: "94vw", boxShadow: "0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(139,92,246,0.15)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px 14px", borderBottom: "1px solid #2d2a40" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 600 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+            API Keys
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#8b88a8", fontSize: 16, cursor: "pointer", width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        </div>
+        <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 18 }}>
+          {[
+            { label: "Claude API Key", provider: "claude", value: claudeKey, setter: setClaudeKey, show: showClaude, toggleShow: () => setShowClaude(v => !v), hint: "Get your key at console.anthropic.com", badge: null },
+            { label: "Gemini API Key", provider: "gemini", value: geminiKey, setter: setGeminiKey, show: showGemini, toggleShow: () => setShowGemini(v => !v), hint: "Get your key at aistudio.google.com", badge: "Optional" },
+          ].map(({ label, provider, value, setter, show, toggleShow, hint, badge }) => (
+            <div key={provider} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#8b88a8", display: "flex", alignItems: "center", gap: 8 }}>
+                {label}
+                {badge && <span style={{ fontSize: 10, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", color: "#4ade80", borderRadius: 4, padding: "1px 6px" }}>{badge}</span>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type={show ? "text" : "password"} value={value} onChange={e => setter(e.target.value)} placeholder={`Enter your ${label}...`} style={{ flex: 1, background: "#1c1928", border: "1px solid #3a3654", borderRadius: 8, padding: "9px 12px", color: "#e2dff0", fontFamily: "JetBrains Mono,monospace", fontSize: 12, outline: "none" }} />
+                <button onClick={toggleShow} style={{ padding: "9px 12px", background: "#2a2640", border: "1px solid #2d2a40", borderRadius: 8, color: "#8b88a8", fontSize: 12, fontFamily: "Outfit,sans-serif", cursor: "pointer" }}>{show ? "Hide" : "Show"}</button>
+              </div>
+              <div style={{ fontSize: 11.5, color: "#4f4d6a" }}>{hint}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "14px 20px 18px", borderTop: "1px solid #2d2a40" }}>
+          <button onClick={onClose} style={{ padding: "8px 18px", background: "#2a2640", border: "1px solid #2d2a40", borderRadius: 8, color: "#8b88a8", fontSize: 13, fontFamily: "Outfit,sans-serif", cursor: "pointer" }}>Cancel</button>
+          <button onClick={handleSave} style={{ padding: "8px 20px", background: saved ? "#10b981" : "#8b5cf6", border: "none", borderRadius: 8, color: "white", fontSize: 13, fontWeight: 600, fontFamily: "Outfit,sans-serif", cursor: "pointer", boxShadow: saved ? "0 0 12px rgba(16,185,129,0.35)" : "0 0 12px rgba(139,92,246,0.35)", transition: "all 0.2s" }}>
+            {saved ? "✓ Saved!" : "Save Keys"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ──
+export default function InfinityAI() {
+  const [history, setHistory] = useState([]);
+  const [messages, setMessages] = useState([]); // {role, text, atts?}
+  const [busy, setBusy] = useState(false);
+  const [inputVal, setInputVal] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [currentModel, setCurrentModel] = useState("claude-sonnet-4-20250514");
+  const [currentProvider, setCurrentProvider] = useState("claude");
+  const [currentModelName, setCurrentModelName] = useState("Sonnet 4");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [apiModalOpen, setApiModalOpen] = useState(false);
+  const [claudeKey, setClaudeKey] = useState(HARDCODED_KEY);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [pvOpen, setPvOpen] = useState(false);
+  const [pvTab, setPvTab] = useState("preview");
+  const [pvCode, setPvCode] = useState("");
+  const [pvLang, setPvLang] = useState("");
+  const [fsOn, setFsOn] = useState(false);
+  const [activeNav, setActiveNav] = useState("chat");
+  const codeStoreRef = useRef({});
+  const chatAreaRef = useRef(null);
+  const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const scrollDown = useCallback(() => {
+    setTimeout(() => { if (chatAreaRef.current) chatAreaRef.current.scrollTop = chatAreaRef.current.scrollHeight; }, 60);
+  }, []);
+
+  useEffect(() => { scrollDown(); }, [messages, scrollDown]);
+
+  const handleModelSelect = (modelId, shortName, provider) => {
+    setCurrentModel(modelId); setCurrentProvider(provider); setCurrentModelName(shortName);
+    setModelMenuOpen(false);
+  };
+
+  const handleSaveKeys = (ck, gk) => {
+    if (ck) setClaudeKey(ck);
+    if (gk) setGeminiKey(gk);
+  };
+
+  const handleFileAttach = async (e) => {
+    const files = Array.from(e.target.files);
+    e.target.value = "";
+    const newAtts = [];
+    for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) { alert(`"${file.name}" is too large (max 50MB).`); continue; }
+      const type = getFileType(file);
+      const base64 = await toBase64(file);
+      newAtts.push({ id: "att_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), file, type, base64, mediaType: file.type, name: file.name });
+    }
+    setAttachments(prev => [...prev, ...newAtts]);
+  };
+
+  const removeAttachment = (id) => setAttachments(prev => prev.filter(a => a.id !== id));
+
+  const buildUserMsgContent = (text, atts) => {
+    if (!atts.length) return text;
+    const content = [];
+    for (const att of atts) {
+      if (att.type === "img") content.push({ type: "image", source: { type: "base64", media_type: att.mediaType, data: att.base64 } });
+      else if (att.type === "pdf") content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: att.base64 } });
+      else content.push({ type: "text", text: `[Attached file: ${att.name}]` });
+    }
+    content.push({ type: "text", text });
+    return content;
+  };
+
+  const sendMsg = async () => {
+    if (busy) return;
+    const text = inputVal.trim();
+    if (!text && attachments.length === 0) return;
+
+    const currentAtts = [...attachments];
+    const msgContent = buildUserMsgContent(text || "Please analyze the attached file(s).", currentAtts);
+    const newHistory = [...history, { role: "user", content: msgContent }];
+    setHistory(newHistory);
+    setMessages(prev => [...prev, { role: "user", text: text || "(attachments)", atts: currentAtts }]);
+    setAttachments([]);
+    setInputVal("");
+    if (textareaRef.current) { textareaRef.current.style.height = "auto"; }
+
+    const apiKey = currentProvider === "gemini" ? geminiKey : claudeKey;
+    if (!apiKey || apiKey === HARDCODED_KEY) {
+      setMessages(prev => [...prev, { role: "ai", text: "⚠️ No API key set. Click the **API Key** button to add your key." }]);
+      setApiModalOpen(true);
+      return;
+    }
+
+    setBusy(true);
+    setMessages(prev => [...prev, { role: "typing" }]);
+
+    try {
+      let reply = "";
+      if (currentProvider === "gemini") {
+        const gemHist = newHistory.slice(0, -1).map(m => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: Array.isArray(m.content) ? m.content.filter(c => c.type === "text").map(c => ({ text: c.text })) : [{ text: m.content }]
+        }));
+        const lastMsg = newHistory[newHistory.length - 1];
+        const userParts = Array.isArray(lastMsg.content) ? lastMsg.content.filter(c => c.type === "text").map(c => ({ text: c.text })) : [{ text: lastMsg.content }];
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ system_instruction: { parts: [{ text: SYSTEM_PROMPT }] }, contents: [...gemHist, { role: "user", parts: userParts }], generationConfig: { maxOutputTokens: 8192 } })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "No response from Gemini.";
+      } else {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: currentModel, max_tokens: 8096, system: SYSTEM_PROMPT, messages: newHistory })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        reply = data.content?.[0]?.text ?? "Sorry, something went wrong.";
+      }
+      setHistory(prev => [...prev, { role: "assistant", content: reply }]);
+      setMessages(prev => prev.filter(m => m.role !== "typing").concat({ role: "ai", text: reply }));
+    } catch (err) {
+      setMessages(prev => prev.filter(m => m.role !== "typing").concat({ role: "ai", text: `⚠️ Error: ${err.message}` }));
+    }
+    setBusy(false);
+  };
+
+  const quickSend = (txt) => { setInputVal(txt); setTimeout(() => { textareaRef.current?.focus(); sendMsg(); }, 50); };
+
+  const handleMsgClick = (e) => {
+    const sid = e.target.dataset.sid || e.target.closest("[data-sid]")?.dataset?.sid;
+    const cbid = e.target.dataset.cbid || e.target.closest("[data-cbid]")?.dataset?.cbid;
+    if (sid && codeStoreRef.current[sid]) {
+      const { code, lang } = codeStoreRef.current[sid];
+      setPvCode(code); setPvLang(lang); setPvOpen(true);
+    }
+    if (cbid) {
+      const el = document.getElementById(cbid);
+      if (el) navigator.clipboard.writeText(el.innerText).then(() => {
+        const btn = e.target.closest(".copy-btn") || e.target;
+        if (btn) { const orig = btn.innerHTML; btn.innerHTML = "✓ Copied!"; btn.style.color = "#10b981"; setTimeout(() => { btn.innerHTML = orig; btn.style.color = ""; }, 2000); }
+      });
+    }
+  };
+
+  const newChat = () => {
+    setHistory([]); setMessages([]); setAttachments([]);
+    codeStoreRef.current = {}; _storeId = 0;
+    setPvOpen(false); setPvCode(""); setPvLang("");
+  };
+
+  // Styles
+  const S = {
+    app: { fontFamily: "'Outfit', sans-serif", background: "#0e0c14", color: "#e2dff0", height: "100vh", display: "flex", overflow: "hidden" },
+    sidebar: { width: 240, minWidth: 240, background: "#131118", borderRight: "1px solid #2d2a40", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0 },
+    logoRow: { display: "flex", alignItems: "center", gap: 10, padding: "20px 18px 16px", borderBottom: "1px solid #2d2a40" },
+    sidebarInner: { flex: 1, overflowY: "auto", padding: "14px 10px", scrollbarWidth: "none" },
+    newChatBtn: { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", background: "#211e30", border: "1px solid #2d2a40", borderRadius: 8, color: "#e2dff0", fontFamily: "Outfit,sans-serif", fontSize: 14, fontWeight: 500, cursor: "pointer", marginBottom: 18 },
+    sectionLabel: { fontSize: 11, fontWeight: 600, color: "#4f4d6a", textTransform: "uppercase", letterSpacing: 1, padding: "0 8px", marginBottom: 6 },
+    navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, color: active ? "#e2dff0" : "#8b88a8", fontSize: 14, cursor: "pointer", background: active ? "#1c1926" : "none", marginBottom: 2, transition: "all 0.18s" }),
+    sidebarBottom: { padding: "12px 10px", borderTop: "1px solid #2d2a40" },
+    userRow: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer" },
+    avatar: { width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#7c3aed,#c084fc)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "white", flexShrink: 0 },
+    workspace: { flex: 1, display: "flex", overflow: "hidden" },
+    chatCol: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 },
+    topbar: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: "1px solid #2d2a40", flexShrink: 0, gap: 10 },
+    modelPill: { display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", background: "#2a2640", border: "1px solid #2d2a40", borderRadius: 20, fontSize: 13, fontWeight: 500, color: "#e2dff0", cursor: "pointer", fontFamily: "Outfit,sans-serif", transition: "all 0.2s", whiteSpace: "nowrap" },
+    topbarRight: { display: "flex", gap: 8, alignItems: "center" },
+    livePreviewBtn: (active) => ({ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", background: active ? "linear-gradient(135deg,#7c3aed,#6d28d9)" : "linear-gradient(135deg,rgba(139,92,246,0.25),rgba(192,132,252,0.15))", border: `1px solid ${active ? "#7c3aed" : "rgba(139,92,246,0.5)"}`, borderRadius: 20, fontSize: 13, fontWeight: 600, color: active ? "white" : "#a78bfa", cursor: "pointer", fontFamily: "Outfit,sans-serif", whiteSpace: "nowrap", transition: "all 0.22s" }),
+    topBtn: { display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#2a2640", border: "1px solid #2d2a40", borderRadius: 20, fontSize: 13, color: "#8b88a8", cursor: "pointer", fontFamily: "Outfit,sans-serif", whiteSpace: "nowrap" },
+    chatArea: { flex: 1, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "#2d2a40 transparent" },
+    welcome: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", textAlign: "center", padding: "40px 20px" },
+    orbWrap: { position: "relative", width: 260, height: 160, marginBottom: 32, flexShrink: 0 },
+    welcomeH1: { fontSize: 26, fontWeight: 600, letterSpacing: "-0.4px", marginBottom: 28 },
+    quickRow: { display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" },
+    qbtn: { display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#2a2640", border: "1px solid #2d2a40", borderRadius: 20, fontSize: 13, fontWeight: 500, color: "#8b88a8", cursor: "pointer", fontFamily: "Outfit,sans-serif" },
+    msgs: { padding: "28px 20px", maxWidth: 760, margin: "0 auto", width: "100%" },
+    inputZone: { padding: "14px 20px 18px", borderTop: "1px solid #2d2a40", flexShrink: 0 },
+    inputWrap: { maxWidth: 760, margin: "0 auto" },
+    inputBox: { background: "#1c1928", border: "1px solid #3a3654", borderRadius: 16, padding: "14px 16px 10px", transition: "border-color 0.2s,box-shadow 0.2s" },
+    textareaRow: { display: "flex", alignItems: "flex-end", gap: 10 },
+    actionsRow: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+    ab: { display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "none", border: "none", color: "#8b88a8", fontSize: 12.5, fontFamily: "Outfit,sans-serif", cursor: "pointer" },
+    modelAb: (provider) => ({ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 10, background: "none", border: "1px solid #2d2a40", color: provider === "claude" ? "#a78bfa" : "#4ade80", fontSize: 12.5, fontFamily: "Outfit,sans-serif", cursor: "pointer", transition: "all 0.2s" }),
+    sendBtn: (disabled) => ({ width: 34, height: 34, borderRadius: "50%", background: "#8b5cf6", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.35 : 1, boxShadow: "0 0 14px rgba(139,92,246,0.45)", transition: "all 0.2s" }),
+    micBtn: { width: 34, height: 34, borderRadius: "50%", background: "#2a2640", border: "1px solid #2d2a40", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#8b88a8" },
+  };
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { overflow: hidden; }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
+        @keyframes dotB { 0%,80%,100%{transform:translateY(0);opacity:0.4;} 40%{transform:translateY(-6px);opacity:1;} }
+        @keyframes dropUp { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
+        .msg-anim { animation: fadeUp 0.3s ease-out; }
+        .typing-dot { width:7px;height:7px;border-radius:50%;background:#a78bfa;animation:dotB 1.2s ease-in-out infinite;display:inline-block; }
+        .typing-dot:nth-child(2){animation-delay:0.2s;}
+        .typing-dot:nth-child(3){animation-delay:0.4s;}
+        .code-wrap{border-radius:10px;overflow:hidden;margin:12px 0;border:1px solid #3a3654;}
+        .code-head{display:flex;align-items:center;justify-content:space-between;background:#272438;padding:8px 12px;font-size:12px;color:#8b88a8;font-family:'JetBrains Mono',monospace;}
+        .code-head-left{display:flex;align-items:center;gap:8px;}
+        .code-head-btns{display:flex;gap:6px;align-items:center;}
+        .lang-badge{font-size:11px;font-weight:600;color:#a78bfa;background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.2);border-radius:4px;padding:2px 7px;font-family:'Outfit',sans-serif;}
+        .cb-preview-btn{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;background:linear-gradient(135deg,rgba(139,92,246,0.3),rgba(192,132,252,0.2));border:1px solid rgba(139,92,246,0.45);color:#d8b4fe;font-size:11.5px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;transition:all 0.18s;}
+        .cb-preview-btn:hover{background:linear-gradient(135deg,rgba(139,92,246,0.5),rgba(192,132,252,0.35));border-color:#8b5cf6;color:white;}
+        .copy-btn{background:none;border:1px solid #2d2a40;color:#8b88a8;cursor:pointer;font-size:11px;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:5px;transition:all 0.2s;}
+        .copy-btn:hover{background:#2d2a40;color:#e2dff0;}
+        .code-wrap pre{margin:0;background:#0a0816;padding:16px;overflow-x:auto;}
+        .code-wrap pre code{font-family:'JetBrains Mono',monospace;font-size:13px;color:#c9d1d9;line-height:1.65;background:none;border:none;padding:0;}
+        .ai-bubble p{margin-bottom:10px;}.ai-bubble p:last-child{margin-bottom:0;}
+        .ai-bubble strong{color:#a78bfa;font-weight:600;}.ai-bubble em{color:#c4b5fd;font-style:italic;}
+        .ai-bubble h1{font-size:20px;font-weight:700;margin:14px 0 8px;}.ai-bubble h2{font-size:17px;font-weight:600;margin:12px 0 7px;}.ai-bubble h3{font-size:15px;font-weight:600;margin:10px 0 6px;}
+        .ai-bubble ul,.ai-bubble ol{padding-left:22px;margin:8px 0;}.ai-bubble li{margin-bottom:5px;line-height:1.6;}
+        .ai-bubble code{font-family:'JetBrains Mono',monospace;font-size:12.5px;background:#272438;border:1px solid #2d2a40;border-radius:4px;padding:2px 6px;color:#c084fc;}
+        .ai-bubble blockquote{border-left:3px solid #8b5cf6;padding:8px 14px;margin:10px 0;background:#211e30;border-radius:0 8px 8px 0;color:#8b88a8;}
+        .ai-bubble hr{border:none;border-top:1px solid #2d2a40;margin:14px 0;}
+        .attach-chip{display:flex;align-items:center;gap:6px;padding:5px 9px;background:#211e30;border:1px solid #2d2a40;border-radius:8px;font-size:12px;color:#e2dff0;max-width:180px;}
+        .chip-thumb{width:28px;height:28px;border-radius:4px;object-fit:cover;}
+        .chip-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}
+        .chip-remove{background:none;border:none;color:#8b88a8;cursor:pointer;font-size:12px;padding:0 2px;flex-shrink:0;}
+        .msg-attach-img{max-width:220px;max-height:160px;border-radius:8px;margin-bottom:8px;display:block;}
+        .msg-attach-file{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;font-size:12px;margin-bottom:6px;}
+        textarea::-webkit-scrollbar{display:none;}
+        ::-webkit-scrollbar{width:4px;} ::-webkit-scrollbar-thumb{background:#2d2a40;border-radius:4px;}
+      `}</style>
+      <div style={S.app}>
+        {/* SIDEBAR */}
+        <aside style={S.sidebar}>
+          <div style={S.logoRow}>
+            <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}><InfinityLogo /></div>
+            <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px" }}>Infinity AI</div>
+          </div>
+          <div style={S.sidebarInner}>
+            <button style={S.newChatBtn} onClick={newChat}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              New Chat
+            </button>
+            <div style={{ marginBottom: 20 }}>
+              <div style={S.sectionLabel}>Menu</div>
+              {[
+                { id: "chat", label: "Chat", path: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" },
+                { id: "archived", label: "Archived", path: "M21 8v13H3V8M1 3h22v5H1zM10 12h4" },
+                { id: "library", label: "Library", path: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z" },
+                { id: "workspaces", label: "Workspaces", path: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" },
+              ].map(({ id, label, path }) => (
+                <div key={id} style={S.navItem(activeNav === id)} onClick={() => setActiveNav(id)}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: activeNav === id ? 1 : 0.7, color: activeNav === id ? "#a78bfa" : "currentColor" }}><path d={path} /></svg>
+                  {label}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={S.sidebarBottom}>
+            <div style={S.userRow}>
+              <div style={S.avatar}>U</div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>User</div>
+                <div style={{ fontSize: 11, color: "#8b88a8" }}>Free Plan</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* WORKSPACE */}
+        <div style={S.workspace}>
+          {/* CHAT COLUMN */}
+          <div style={S.chatCol}>
+            {/* TOPBAR */}
+            <div style={S.topbar}>
+              <button style={S.modelPill} onClick={() => setModelMenuOpen(o => !o)}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: currentProvider === "gemini" ? "#4ade80" : "#a78bfa", flexShrink: 0 }} />
+                <span>{currentProvider === "claude" ? "Claude" : "Gemini"} · {currentModelName}</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+              </button>
+              <div style={S.topbarRight}>
+                <button style={S.livePreviewBtn(pvOpen)} onClick={() => setPvOpen(o => !o)}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: pvOpen ? "#fff" : "#a78bfa", flexShrink: 0 }} />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+                  Live Preview
+                </button>
+                <button style={S.topBtn}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  Export
+                </button>
+              </div>
+            </div>
+
+            {/* CHAT AREA */}
+            <div ref={chatAreaRef} style={S.chatArea}>
+              {messages.length === 0 ? (
+                <div style={S.welcome}>
+                  <div style={S.orbWrap}><InfinityCanvas /></div>
+                  <h1 style={S.welcomeH1}>Ready to Create Something Infinite?</h1>
+                  <div style={S.quickRow}>
+                    {[
+                      { icon: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", label: "Create Image", prompt: "Build a beautiful animated CSS button with hover effects" },
+                      { icon: "M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z", label: "Brainstorm", prompt: "Brainstorm 5 innovative app ideas that solve real-world problems" },
+                      { icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", label: "Make a plan", prompt: "Help me make a project plan for building a web application" },
+                      { icon: "M16 18 22 12 16 6M8 6 2 12 8 18", label: "Generate Code", prompt: "Generate a complete HTML page with a to-do list app using JavaScript" },
+                    ].map(({ icon, label, prompt }) => (
+                      <button key={label} style={S.qbtn} onClick={() => quickSend(prompt)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={icon} /></svg>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div style={S.msgs} onClick={handleMsgClick}>
+                  {messages.map((msg, i) => {
+                    if (msg.role === "typing") return (
+                      <div key={i} className="msg-anim" style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 26 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: "50%", background: "radial-gradient(circle at 35% 30%,#c084fc,#7c3aed,#1a1035)", boxShadow: "0 0 10px rgba(139,92,246,0.4)", flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ background: "#1a1726", border: "1px solid #2d2a40", borderRadius: "4px 18px 18px 18px", padding: "14px 18px" }}>
+                            <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                              <div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    if (msg.role === "user") return (
+                      <div key={i} className="msg-anim" style={{ display: "flex", justifyContent: "flex-end", marginBottom: 26 }}>
+                        <div style={{ background: "#6d28d9", color: "white", padding: "12px 18px", borderRadius: "18px 18px 4px 18px", maxWidth: "72%", fontSize: 14.5, lineHeight: 1.6, boxShadow: "0 0 24px rgba(109,40,217,0.3)" }}>
+                          {msg.atts?.length > 0 && (
+                            <div style={{ marginBottom: 8 }}>
+                              {msg.atts.map(att => att.type === "img"
+                                ? <img key={att.id} className="msg-attach-img" src={`data:${att.file.type};base64,${att.base64}`} alt={att.name} />
+                                : <div key={att.id} className="msg-attach-file">{fileIcon(att.type)} {att.name}</div>
+                              )}
+                            </div>
+                          )}
+                          {msg.text.split("\n").map((line, j) => <span key={j}>{line}{j < msg.text.split("\n").length - 1 && <br />}</span>)}
+                        </div>
+                      </div>
+                    );
+                    if (msg.role === "ai") {
+                      const html = renderMD(msg.text, codeStoreRef.current);
+                      return (
+                        <div key={i} className="msg-anim" style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 26 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "radial-gradient(circle at 35% 30%,#c084fc,#7c3aed,#1a1035)", boxShadow: "0 0 10px rgba(139,92,246,0.4)", flexShrink: 0, marginTop: 2, position: "relative", overflow: "hidden" }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="ai-bubble" style={{ background: "#1a1726", border: "1px solid #2d2a40", borderRadius: "4px 18px 18px 18px", padding: "14px 18px", fontSize: 14.5, lineHeight: 1.7, color: "#e2dff0" }} dangerouslySetInnerHTML={{ __html: html }} />
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* INPUT */}
+            <div style={S.inputZone}>
+              <div style={S.inputWrap}>
+                <div style={S.inputBox}>
+                  {/* Attach preview */}
+                  {attachments.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                      {attachments.map(att => (
+                        <div key={att.id} className="attach-chip">
+                          {att.type === "img"
+                            ? <img className="chip-thumb" src={`data:${att.file.type};base64,${att.base64}`} alt="" />
+                            : <div style={{ fontSize: 16 }}>{fileIcon(att.type)}</div>
+                          }
+                          <span className="chip-name">{att.name}</span>
+                          <button className="chip-remove" onClick={() => removeAttachment(att.id)}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={S.textareaRow}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#a78bfa" style={{ flexShrink: 0, marginBottom: 4 }}><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26" /></svg>
+                    <textarea
+                      ref={textareaRef}
+                      value={inputVal}
+                      onChange={e => { setInputVal(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px"; }}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }}
+                      placeholder="Ask Anything..."
+                      rows={1}
+                      style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#e2dff0", fontFamily: "Outfit,sans-serif", fontSize: 14.5, resize: "none", minHeight: 24, maxHeight: 140, lineHeight: 1.6, scrollbarWidth: "none" }}
+                    />
+                  </div>
+                  <div style={S.actionsRow}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, position: "relative" }}>
+                      <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.mp4,.mov,.webm,.avi" style={{ display: "none" }} onChange={handleFileAttach} />
+                      <button style={S.ab} onClick={() => fileInputRef.current?.click()}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                        Attach
+                      </button>
+                      <button style={S.modelAb(currentProvider)} onClick={() => setModelMenuOpen(o => !o)}>
+                        {currentProvider === "claude" ? <ClaudeIcon /> : <GeminiIcon />}
+                        <span>{currentProvider === "claude" ? "Claude" : "Gemini"}</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9" /></svg>
+                      </button>
+                      <button style={S.ab} onClick={() => setApiModalOpen(true)}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                        API Key
+                      </button>
+                      <ModelDropdown open={modelMenuOpen} currentModel={currentModel} currentProvider={currentProvider} onSelect={handleModelSelect} onClose={() => setModelMenuOpen(false)} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button style={S.micBtn}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" /></svg>
+                      </button>
+                      <button style={S.sendBtn(busy)} onClick={sendMsg} disabled={busy}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "center", fontSize: 11.5, color: "#4f4d6a", marginTop: 8 }}>Infinity AI can make mistakes. Verify important info.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* PREVIEW PANEL */}
+          <PreviewPanel open={pvOpen} pvTab={pvTab} setPvTab={setPvTab} pvCode={pvCode} pvLang={pvLang} onClose={() => { setPvOpen(false); setFsOn(false); }} onRefresh={() => { const c = pvCode; setPvCode(""); setTimeout(() => setPvCode(c), 50); }} onFullscreen={() => setFsOn(f => !f)} fsOn={fsOn} />
+        </div>
+      </div>
+
+      <ApiModal open={apiModalOpen} onClose={() => setApiModalOpen(false)} onSave={handleSaveKeys} />
+    </>
+  );
+}
