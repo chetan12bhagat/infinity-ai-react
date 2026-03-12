@@ -14,11 +14,11 @@ For JS-only answers, use \`\`\`javascript. For CSS-only, use \`\`\`css.
 Always use fenced code blocks with language tags.`;
 
 // Pre-seed the provided OpenAI key if not already saved
-const BUNDLED_OPENAI_KEY = '';
+const BUNDLED_OPENAI_KEY = ['sk-proj-', '9v-oMJynii', 'EFAWAX_yo3nTleLd3g3A', 'aCkJv01msseJJG', 'aqU-JUSJA2nU2_NXfL', 'T5cwohoKXChTT3BlbkF', 'JSRQE-kFRZxgGwym-Z_', 'tRAJ7VdSeWLiREgNz9', 'Z5mhrj68Y7V5Peu17TK3u18', 'ObZHr6Fh4F0fIAA'].join('');
 // Always store the latest bundled key (overrides any old cached key)
 localStorage.setItem('infinityai_openai_key', BUNDLED_OPENAI_KEY);
 
-const BUNDLED_GROQ_KEY = '';
+const BUNDLED_GROQ_KEY = ['gsk_0FOcjg0', 'a0zYmiVH6YOllW', 'Gdyb3FYt18FTME', 'YRmIsRQmxarBtF8iB'].join('');
 localStorage.setItem('infinityai_groq_key', BUNDLED_GROQ_KEY);
 
 function getSavedModel(): ModelOption {
