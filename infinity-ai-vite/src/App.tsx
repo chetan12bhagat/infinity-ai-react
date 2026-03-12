@@ -22,8 +22,20 @@ const BUNDLED_GROQ_KEY = ['gsk_0FOcjg0', 'a0zYmiVH6YOllW', 'Gdyb3FYt18FTME', 'YR
 localStorage.setItem('infinityai_groq_key', BUNDLED_GROQ_KEY);
 
 function getSavedModel(): ModelOption {
-  const id = localStorage.getItem('infinityai_model');
-  return MODELS.find(m => m.id === id) ?? MODELS[0];
+  const claudeKey = localStorage.getItem('infinityai_claude_key');
+  const storedId = localStorage.getItem('infinityai_model');
+  
+  // If they have a stored model, use it
+  let model = MODELS.find(m => m.id === storedId);
+  
+  // If the stored model is Claude but they have no Claude key, 
+  // silently switch them to an OpenAI or Groq model since those are bundled
+  if (model?.dot === 'claude-opt' && !claudeKey) {
+    model = undefined;
+  }
+  
+  // Default to Llama 3.3 (Groq) or GPT-4o-mini (OpenAI)
+  return model ?? MODELS.find(m => m.id === 'gpt-4o-mini') ?? MODELS[0];
 }
 
 export default function App() {
