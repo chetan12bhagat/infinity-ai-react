@@ -6,20 +6,20 @@ interface ApiKeyModalProps {
 }
 
 export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
-  const [claudeKey,  setClaudeKey]  = useState('');
   const [geminiKey,  setGeminiKey]  = useState('');
+  const [claudeKey,  setClaudeKey]  = useState('');
   const [openaiKey,  setOpenaiKey]  = useState('');
   const [groqKey,    setGroqKey]    = useState('');
-  const [showClaude, setShowClaude] = useState(false);
   const [showGemini, setShowGemini] = useState(false);
+  const [showClaude, setShowClaude] = useState(false);
   const [showOpenai, setShowOpenai] = useState(false);
   const [showGroq,   setShowGroq]   = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setClaudeKey(localStorage.getItem('infinityai_claude_key') || '');
       setGeminiKey(localStorage.getItem('infinityai_gemini_key') || '');
+      setClaudeKey(localStorage.getItem('infinityai_claude_key') || '');
       setOpenaiKey(localStorage.getItem('infinityai_openai_key') || '');
       setGroqKey(localStorage.getItem('infinityai_groq_key') || '');
       setSaved(false);
@@ -27,15 +27,16 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
   }, [open]);
 
   const handleSave = () => {
-    if (claudeKey.trim()) localStorage.setItem('infinityai_claude_key', claudeKey.trim());
     if (geminiKey.trim()) localStorage.setItem('infinityai_gemini_key', geminiKey.trim());
+    else localStorage.removeItem('infinityai_gemini_key');
+    if (claudeKey.trim()) localStorage.setItem('infinityai_claude_key', claudeKey.trim());
+    else localStorage.removeItem('infinityai_claude_key');
     if (openaiKey.trim()) localStorage.setItem('infinityai_openai_key', openaiKey.trim());
+    else localStorage.removeItem('infinityai_openai_key');
     if (groqKey.trim())   localStorage.setItem('infinityai_groq_key', groqKey.trim());
+    else localStorage.removeItem('infinityai_groq_key');
     setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      setTimeout(() => onClose(), 300);
-    }, 1400);
+    setTimeout(() => { setSaved(false); setTimeout(() => onClose(), 300); }, 1400);
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -60,7 +61,48 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
           </button>
         </div>
 
-        {/* Claude Key */}
+        {/* ── Gemini Key — Free tier highlight ── */}
+        <div className="modal-field" style={{
+          background: 'rgba(74,222,128,0.04)',
+          border: '1px solid rgba(74,222,128,0.15)',
+          borderRadius: '10px',
+          padding: '12px 14px 10px',
+          marginBottom: '14px'
+        }}>
+          <div className="modal-label">
+            <span className="key-dot" style={{ background: '#4ade80', boxShadow: '0 0 6px rgba(74,222,128,0.7)' }} />
+            Google Gemini API Key
+            <span style={{
+              display: 'inline-flex', alignItems: 'center',
+              fontSize: '10px', fontWeight: 700, color: '#4ade80',
+              background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)',
+              borderRadius: '4px', padding: '1px 7px', marginLeft: '6px'
+            }}>
+              ✦ Free tier available
+            </span>
+          </div>
+          <div className="api-input-wrap">
+            <input
+              className="api-input"
+              type={showGemini ? 'text' : 'password'}
+              placeholder="AIzaSy..."
+              value={geminiKey}
+              style={{ borderColor: geminiKey ? 'rgba(74,222,128,0.4)' : undefined }}
+              onChange={e => setGeminiKey(e.target.value)}
+            />
+            <button className="api-show-btn" onClick={() => setShowGemini(s => !s)}>
+              {showGemini ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          <div className="modal-hint">
+            Get your free key at{' '}
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{ color: '#4ade80' }}>
+              aistudio.google.com/app/apikey
+            </a>
+          </div>
+        </div>
+
+        {/* ── Claude Key ── */}
         <div className="modal-field">
           <div className="modal-label">
             <span className="key-dot" style={{ background: '#c084fc' }} />
@@ -81,7 +123,7 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
           <div className="modal-hint">Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noreferrer">console.anthropic.com</a></div>
         </div>
 
-        {/* OpenAI Key */}
+        {/* ── OpenAI Key ── */}
         <div className="modal-field">
           <div className="modal-label">
             <span className="key-dot" style={{ background: '#10b981' }} />
@@ -102,7 +144,7 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
           <div className="modal-hint">Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a></div>
         </div>
 
-        {/* Groq Key */}
+        {/* ── Groq Key ── */}
         <div className="modal-field">
           <div className="modal-label">
             <span className="key-dot" style={{ background: '#f97316' }} />
@@ -121,28 +163,6 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
             </button>
           </div>
           <div className="modal-hint">Get your key at <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer">console.groq.com/keys</a></div>
-        </div>
-
-        {/* Gemini Key */}
-        <div className="modal-field">
-          <div className="modal-label">
-            <span className="key-dot" style={{ background: '#34d399' }} />
-            Gemini API Key
-            <span className="optional-badge">Optional</span>
-          </div>
-          <div className="api-input-wrap">
-            <input
-              className="api-input"
-              type={showGemini ? 'text' : 'password'}
-              placeholder="AIza..."
-              value={geminiKey}
-              onChange={e => setGeminiKey(e.target.value)}
-            />
-            <button className="api-show-btn" onClick={() => setShowGemini(s => !s)}>
-              {showGemini ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          <div className="modal-hint">Get your key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com</a></div>
         </div>
 
         <div className={`modal-saved-badge${saved ? ' show' : ''}`}>

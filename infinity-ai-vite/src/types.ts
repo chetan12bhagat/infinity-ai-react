@@ -17,8 +17,8 @@ export const MODELS: ModelOption[] = [
   { id: 'claude-opus-4-5',            name: 'Claude Opus 4.5',     sub: 'Most powerful · Complex tasks',   dot: 'claude-opt' },
   { id: 'claude-haiku-4-5',           name: 'Claude Haiku 4.5',    sub: 'Fastest · Lightweight',           dot: 'claude-opt' },
   // Gemini
-  { id: 'gemini-2.0-flash',           name: 'Gemini 2.0 Flash',    sub: 'Fast multimodal · Google',        dot: 'gemini-opt' },
-  { id: 'gemini-2.5-pro',             name: 'Gemini 2.5 Pro',      sub: 'Most capable · Gemini',           dot: 'gemini-opt' },
+  { id: 'gemini-2.0-flash',           name: 'Gemini 2.0 Flash',    sub: 'Fast multimodal · Free tier',     dot: 'gemini-opt' },
+  { id: 'gemini-2.5-pro-preview-03-25', name: 'Gemini 2.5 Pro',    sub: 'Most capable Gemini · Free tier', dot: 'gemini-opt' },
   // OpenAI
   { id: 'gpt-4o',                     name: 'GPT-4o',              sub: 'Flagship multimodal · OpenAI',    dot: 'openai-opt' },
   { id: 'gpt-4o-mini',                name: 'GPT-4o Mini',         sub: 'Fast & affordable · OpenAI',      dot: 'openai-opt' },
