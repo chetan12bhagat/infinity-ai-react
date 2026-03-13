@@ -1,3 +1,16 @@
+// Diagnostic logging for production
+if (import.meta.env.PROD) {
+  const missing = [];
+  if (!import.meta.env.VITE_COGNITO_USER_POOL_ID) missing.push('VITE_COGNITO_USER_POOL_ID');
+  if (!import.meta.env.VITE_COGNITO_CLIENT_ID) missing.push('VITE_COGNITO_CLIENT_ID');
+  if (!import.meta.env.VITE_COGNITO_DOMAIN) missing.push('VITE_COGNITO_DOMAIN');
+  
+  if (missing.length > 0) {
+    console.error('CRITICAL: Missing environment variables on Netlify:', missing.join(', '));
+    console.warn('Ensure these are set in Netlify -> Site Settings -> Environment Variables and then RE-DEPLOY the site.');
+  }
+}
+
 export const awsConfig = {
   Auth: {
     Cognito: {
