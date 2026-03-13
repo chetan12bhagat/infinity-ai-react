@@ -23,11 +23,13 @@ export const awsConfig = {
           scopes: ['email', 'openid', 'profile'],
           redirectSignIn: [
             'http://localhost:5173/auth/callback',
-            'https://infinity-ai-cb.netlify.app/auth/callback'
+            'https://infinity-ai-cb.netlify.app/auth/callback',
+            'https://infinity-ai-xi.vercel.app/auth/callback'
           ],
           redirectSignOut: [
             'http://localhost:5173',
-            'https://infinity-ai-cb.netlify.app'
+            'https://infinity-ai-cb.netlify.app',
+            'https://infinity-ai-xi.vercel.app'
           ],
           responseType: 'code'
         }
