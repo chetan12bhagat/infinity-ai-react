@@ -11,9 +11,21 @@ const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToSignUp, onNeedsVerify }
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [configError, setConfigError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const { signIn, googleLogin, githubLogin } = useAuth();
+
+  React.useEffect(() => {
+    const missing = [];
+    if (!import.meta.env.VITE_COGNITO_USER_POOL_ID) missing.push('UserPool ID');
+    if (!import.meta.env.VITE_COGNITO_CLIENT_ID) missing.push('Client ID');
+    if (!import.meta.env.VITE_COGNITO_DOMAIN) missing.push('Cognito Domain');
+    
+    if (missing.length > 0) {
+      setConfigError(`Missing: ${missing.join(', ')}`);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +119,24 @@ const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToSignUp, onNeedsVerify }
           </div>
 
           <div className="auth-divider-text stagger-2">Or</div>
+
+          {configError && (
+            <div className="error-msg stagger-3" style={{ 
+              background: 'rgba(255, 107, 107, 0.1)', 
+              border: '1px solid #ff6b6b',
+              padding: '12px',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              fontSize: '13px',
+              lineHeight: '1.5'
+            }}>
+              <strong>Configuration Error:</strong><br/>
+              {configError}<br/>
+              <span style={{ fontSize: '11px', opacity: 0.8 }}>
+                Check Netlify environment variables and re-deploy.
+              </span>
+            </div>
+          )}
 
           {error && <div className="error-msg stagger-3">{error}</div>}
 

@@ -112,7 +112,7 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
             <input
               className="api-input"
               type={showClaude ? 'text' : 'password'}
-              placeholder="sk-ant-..."
+              placeholder="sk-or-v1-... (OpenRouter)"
               value={claudeKey}
               onChange={e => setClaudeKey(e.target.value)}
             />
@@ -120,7 +120,7 @@ export default function ApiKeyModal({ open, onClose }: ApiKeyModalProps) {
               {showClaude ? 'Hide' : 'Show'}
             </button>
           </div>
-          <div className="modal-hint">Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noreferrer">console.anthropic.com</a></div>
+          <div className="modal-hint">Get your key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a></div>
         </div>
 
         {/* ── OpenAI Key ── */}

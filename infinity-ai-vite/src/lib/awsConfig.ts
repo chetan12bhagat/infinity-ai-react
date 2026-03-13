@@ -7,7 +7,7 @@ if (import.meta.env.PROD) {
   
   if (missing.length > 0) {
     console.error('CRITICAL: Missing environment variables on Netlify:', missing.join(', '));
-    console.warn('Ensure these are set in Netlify -> Site Settings -> Environment Variables and then RE-DEPLOY the site.');
+    console.warn('%c ACTION REQUIRED: ', 'background: #ff0000; color: #fff; font-weight: bold;', 'Ensure these are set in Netlify -> Site Settings -> Environment Variables and then RE-DEPLOY the site.');
   }
 }
 

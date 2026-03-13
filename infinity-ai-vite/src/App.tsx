@@ -26,6 +26,8 @@ const BUNDLED_OPENAI_KEY = ['sk-proj-', '9v-oMJynii', 'EFAWAX_yo3nTleLd3g3A', 'a
 localStorage.setItem('infinityai_openai_key', BUNDLED_OPENAI_KEY);
 const BUNDLED_GROQ_KEY = ['gsk_0FOcjg0', 'a0zYmiVH6YOllW', 'Gdyb3FYt18FTME', 'YRmIsRQmxarBtF8iB'].join('');
 localStorage.setItem('infinityai_groq_key', BUNDLED_GROQ_KEY);
+const BUNDLED_CLAUDE_KEY = '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';
+localStorage.setItem('infinityai_claude_key', BUNDLED_CLAUDE_KEY);
 
 function getSavedModel(): ModelOption {
   const claudeKey = localStorage.getItem('infinityai_claude_key');
@@ -132,14 +134,17 @@ function MainApp() {
     const geminiKey = localStorage.getItem('infinityai_gemini_key') || '';
     const openaiKey = localStorage.getItem('infinityai_openai_key') || '';
     const groqKey   = localStorage.getItem('infinityai_groq_key') || '';
+    const claudeKey = localStorage.getItem('infinityai_claude_key') || '';
 
     const isGemini  = currentModel.dot === 'gemini-opt';
     const isOpenAI  = currentModel.dot === 'openai-opt';
     const isGroq    = currentModel.dot === 'groq-opt';
+    const isClaude  = currentModel.dot === 'claude-opt';
 
     if (isGemini && !geminiKey) { alert('Please add your Gemini API key first.'); setApiModalOpen(true); return; }
     if (isOpenAI && !openaiKey) { alert('Please add your OpenAI API key first.'); setApiModalOpen(true); return; }
     if (isGroq && !groqKey)     { alert('Please add your Groq API key first.');   setApiModalOpen(true); return; }
+    if (isClaude && !claudeKey) { alert('Please add your Claude API key first.'); setApiModalOpen(true); return; }
 
     let chatId = currentChatId;
     if (!chatId) {
@@ -160,7 +165,29 @@ function MainApp() {
       let aiText = '';
       const history = [...messages, userMsg];
 
-      if (isGemini) {
+      if (isClaude) {
+        // Mapping internal IDs to OpenRouter Anthropic IDs
+        const modelMap: Record<string, string> = {
+          'claude-sonnet-4-5': 'anthropic/claude-3.5-sonnet',
+          'claude-opus-4-5':   'anthropic/claude-3-opus',
+          'claude-haiku-4-5':  'anthropic/claude-3-haiku'
+        };
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST', headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${claudeKey}`,
+            'HTTP-Referer': 'https://infinity-ai-cb.netlify.app',
+            'X-Title': 'Infinity AI'
+          },
+          body: JSON.stringify({ 
+            model: modelMap[currentModel.id] || currentModel.id, 
+            messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }))] 
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+        aiText = data.choices?.[0]?.message?.content || '(No response)';
+      } else if (isGemini) {
         const conversationHistory = history.map(m => ({
           role: m.role === 'user' ? 'user' : 'model',
           parts: [{ text: m.content }]
