@@ -34,7 +34,7 @@ function getSavedModel(): ModelOption {
   const storedId = localStorage.getItem('infinityai_model');
   let model = MODELS.find(m => m.id === storedId);
   if (model?.dot === 'claude-opt' && !claudeKey) model = undefined;
-  return model ?? MODELS.find(m => m.id === 'gpt-4o-mini') ?? MODELS[0];
+  return model ?? MODELS.find(m => m.id === 'llama-3.3-70b-versatile') ?? MODELS[0];
 }
 
 // Protected Route Wrapper
