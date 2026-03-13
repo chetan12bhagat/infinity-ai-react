@@ -13,6 +13,8 @@ import AuthCallback from './pages/AuthCallback';
 import ForgotPassword from './pages/ForgotPassword';
 import { useAuth } from './hooks/useAuth';
 import { useChats } from './hooks/useChats';
+import { HelmetProvider } from 'react-helmet-async';
+import SEO from './components/SEO';
 import { MODELS, type Message, type ModelOption } from './types';
 
 const SYSTEM_PROMPT = `You are Infinity AI — a smart, creative AI assistant built for developers and creators.
@@ -231,6 +233,10 @@ function MainApp() {
         onNewChat={handleNewChat} onDeleteChat={deleteFromDb}
         onWorkspaceAction={handleWorkspaceAction} user={user}
       />
+      <SEO 
+        title="Dashboard" 
+        description="Your Infinity AI workspace. Start a new chat, explore AI capabilities, and manage your projects."
+      />
       <div className="workspace">
         <div className="chat-col">
           <div className="topbar">
@@ -317,32 +323,34 @@ export default function App() {
   const [pendingEmail, setPendingEmail] = useState('');
   
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={
-          <LoginPage 
-            onSwitchToSignUp={() => window.location.href = '/signup'} 
-            onNeedsVerify={(email) => { setPendingEmail(email); window.location.href = '/verify'; }}
-          />
-        } />
-        <Route path="/signup" element={
-          <SignupPage 
-            onSwitchToLogin={() => window.location.href = '/login'} 
-            onNeedsVerify={(email) => { setPendingEmail(email); window.location.href = '/verify'; }}
-          />
-        } />
-        <Route path="/verify" element={
-          <VerifyPage 
-            email={pendingEmail} 
-            onVerified={() => window.location.href = '/login'} 
-            onSwitchToLogin={() => window.location.href = '/login'}
-          />
-        } />
-        <Route path="/auth/callback" element={<AuthCallback />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/" element={<ProtectedRoute><MainApp /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <HelmetProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={
+            <LoginPage 
+              onSwitchToSignUp={() => window.location.href = '/signup'} 
+              onNeedsVerify={(email) => { setPendingEmail(email); window.location.href = '/verify'; }}
+            />
+          } />
+          <Route path="/signup" element={
+            <SignupPage 
+              onSwitchToLogin={() => window.location.href = '/login'} 
+              onNeedsVerify={(email) => { setPendingEmail(email); window.location.href = '/verify'; }}
+            />
+          } />
+          <Route path="/verify" element={
+            <VerifyPage 
+              email={pendingEmail} 
+              onVerified={() => window.location.href = '/login'} 
+              onSwitchToLogin={() => window.location.href = '/login'}
+            />
+          } />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/" element={<ProtectedRoute><MainApp /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </HelmetProvider>
   );
 }

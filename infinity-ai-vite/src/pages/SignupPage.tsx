@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import SEO from '../components/SEO';
 
 interface SignupPageProps {
   onSwitchToLogin: () => void;
@@ -58,6 +59,10 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onNeedsVerify 
 
   return (
     <div className="auth-container">
+      <SEO 
+        title="Sign Up" 
+        description="Create your Infinity AI account today. Get started with the most advanced AI tools for development and creativity."
+      />
       {/* Left Panel */}
       <div className="auth-left">
         <div className="auth-left-content">

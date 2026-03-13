@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /signup
+Disallow: /auth/callback
+
+Sitemap: https://infinity-ai-xi.vercel.app/sitemap.xml
