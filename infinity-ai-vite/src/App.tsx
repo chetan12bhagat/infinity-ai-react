@@ -65,6 +65,7 @@ function MainApp() {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -133,20 +134,10 @@ function MainApp() {
     const content = (text ?? input).trim();
     if (!content || busy) return;
 
-    const geminiKey = localStorage.getItem('infinityai_gemini_key') || '';
-    const openaiKey = localStorage.getItem('infinityai_openai_key') || '';
     const groqKey   = localStorage.getItem('infinityai_groq_key') || '';
-    const claudeKey = localStorage.getItem('infinityai_claude_key') || '';
-
-    const isGemini  = currentModel.dot === 'gemini-opt';
-    const isOpenAI  = currentModel.dot === 'openai-opt';
     const isGroq    = currentModel.dot === 'groq-opt';
-    const isClaude  = currentModel.dot === 'claude-opt';
 
-    if (isGemini && !geminiKey) { alert('Please add your Gemini API key first.'); setApiModalOpen(true); return; }
-    if (isOpenAI && !openaiKey) { alert('Please add your OpenAI API key first.'); setApiModalOpen(true); return; }
     if (isGroq && !groqKey)     { alert('Please add your Groq API key first.');   setApiModalOpen(true); return; }
-    if (isClaude && !claudeKey) { alert('Please add your Claude API key first.'); setApiModalOpen(true); return; }
 
     let chatId = currentChatId;
     if (!chatId) {
@@ -167,48 +158,7 @@ function MainApp() {
       let aiText = '';
       const history = [...messages, userMsg];
 
-      if (isClaude) {
-        // Mapping internal IDs to OpenRouter Anthropic IDs
-        const modelMap: Record<string, string> = {
-          'claude-sonnet-4-5': 'anthropic/claude-3.5-sonnet',
-          'claude-opus-4-5':   'anthropic/claude-3-opus',
-          'claude-haiku-4-5':  'anthropic/claude-3-haiku'
-        };
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST', headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${claudeKey}`,
-            'HTTP-Referer': 'https://infinity-ai-cb.netlify.app',
-            'X-Title': 'Infinity AI'
-          },
-          body: JSON.stringify({ 
-            model: modelMap[currentModel.id] || currentModel.id, 
-            messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }))] 
-          })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-        aiText = data.choices?.[0]?.message?.content || '(No response)';
-      } else if (isGemini) {
-        const conversationHistory = history.map(m => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.content }]
-        }));
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel.id}:generateContent?key=${geminiKey}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ system_instruction: { parts: [{ text: SYSTEM_PROMPT }] }, contents: conversationHistory, generationConfig: { maxOutputTokens: 8192 } })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
-        aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '(No response)';
-      } else if (isOpenAI) {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
-          body: JSON.stringify({ model: currentModel.id, messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }))], max_tokens: 4096 })
-        });
-        const data = await res.json();
-        aiText = data.choices?.[0]?.message?.content || '(No response)';
-      } else if (isGroq) {
+      if (isGroq) {
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
           body: JSON.stringify({ model: currentModel.id, messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }))] })
@@ -232,6 +182,7 @@ function MainApp() {
         chats={chats} currentChatId={currentChatId} onSelectChat={handleChatSelect}
         onNewChat={handleNewChat} onDeleteChat={deleteFromDb}
         onWorkspaceAction={handleWorkspaceAction} user={user}
+        isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)}
       />
       <SEO 
         title="Dashboard" 
@@ -240,9 +191,19 @@ function MainApp() {
       <div className="workspace">
         <div className="chat-col">
           <div className="topbar">
-            <button className="model-pill">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/></svg>
-              Infinity AI v1.0
+            <button className="mobile-menu-btn" onClick={() => setMobileSidebarOpen(true)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <button className="model-pill" style={{ gap: '6px' }}>
+              <svg className="logo-glow" width="18" height="12" viewBox="0 0 36 22" fill="none">
+                <path d="M18 11C18 11 14 4 9 4C5.13 4 2 7.13 2 11C2 14.87 5.13 18 9 18C14 18 18 11 18 11Z" stroke="url(#lg_pill1)" strokeWidth="3" strokeLinecap="round" fill="none"/>
+                <path d="M18 11C18 11 22 4 27 4C30.87 4 34 7.13 34 11C34 14.87 30.87 18 27 18C22 18 18 11 18 11Z" stroke="url(#lg_pill2)" strokeWidth="3" strokeLinecap="round" fill="none"/>
+                <defs>
+                  <linearGradient id="lg_pill1" x1="2" y1="11" x2="18" y2="11" gradientUnits="userSpaceOnUse"><stop stopColor="#a78bfa"/><stop offset="1" stopColor="#60a5fa"/></linearGradient>
+                  <linearGradient id="lg_pill2" x1="18" y1="11" x2="34" y2="11" gradientUnits="userSpaceOnUse"><stop stopColor="#60a5fa"/><stop offset="1" stopColor="#a78bfa"/></linearGradient>
+                </defs>
+              </svg>
+              Infinity AI V1.0
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
             <div className="topbar-right">
@@ -296,7 +257,7 @@ function MainApp() {
                 <div className="actions-row">
                   <div className="left-btns">
                     <ModelDropdown currentModel={currentModel} onSelect={handleModelSelect} />
-                    <button className="ab" onClick={() => setApiModalOpen(true)}>
+                    <button className="ab" disabled onClick={() => setApiModalOpen(true)}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                       API Key
                     </button>

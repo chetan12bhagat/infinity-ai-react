@@ -8,6 +8,8 @@ interface SidebarProps {
   onDeleteChat: (chatId: string) => void;
   onWorkspaceAction?: (action: string) => void;
   user: any;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 export default function Sidebar({ 
@@ -17,7 +19,9 @@ export default function Sidebar({
   onNewChat, 
   onDeleteChat,
   onWorkspaceAction,
-  user
+  user,
+  isOpen,
+  onClose
 }: SidebarProps) {
   const { signOut } = useAuth();
 
@@ -91,7 +95,7 @@ export default function Sidebar({
   ];
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isOpen ? ' mobile-open' : ''}`}>
       <div className="sidebar-logo">
         <div className="logo-icon">
           <svg width="36" height="22" viewBox="0 0 36 22" fill="none">
@@ -104,11 +108,14 @@ export default function Sidebar({
           </svg>
         </div>
         <span className="logo-name">Infinity AI</span>
+        <button className="sidebar-mobile-close" onClick={onClose}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
 
       <div className="sidebar-inner">
         {/* New Chat Button */}
-        <button className="new-chat-btn" onClick={onNewChat}>
+        <button className="new-chat-btn" onClick={() => { onNewChat(); onClose?.(); }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
           New Chat
         </button>
@@ -116,7 +123,7 @@ export default function Sidebar({
         {/* ── FEATURES section ── */}
         <div style={sectionLabel}>Features</div>
 
-        <div style={navItem(true)} onClick={onNewChat}>
+        <div style={navItem(true)} onClick={() => { onNewChat(); onClose?.(); }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           Chat
         </div>
@@ -139,7 +146,7 @@ export default function Sidebar({
             key={w.action}
             style={navItem()}
             className="sidebar-nav-item-hover"
-            onClick={() => onWorkspaceAction?.(w.action)}
+            onClick={() => { onWorkspaceAction?.(w.action); onClose?.(); }}
           >
             {w.icon}
             {w.label}
@@ -157,7 +164,7 @@ export default function Sidebar({
               <div 
                 className={`nav-item${currentChatId === chat.chatId ? ' active' : ''}`} 
                 key={chat.chatId}
-                onClick={() => onSelectChat(chat.chatId)}
+                onClick={() => { onSelectChat(chat.chatId); onClose?.(); }}
                 style={{ position: 'relative' }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
